@@ -1,0 +1,35 @@
+{
+  "name": "@submgr/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "订阅管家 Cloudflare Worker (Hono + D1 + Cron)：/api 接口、/ics 日历订阅、三个 Cron 作业。",
+  "main": "src/index.ts",
+  "scripts": {
+    "test": "node --experimental-sqlite --no-warnings scripts/validate-schema.mjs && vitest run",
+    "test:schema": "node --experimental-sqlite --no-warnings scripts/validate-schema.mjs",
+    "test:unit": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json",
+    "build": "wrangler deploy --dry-run --outdir=dist",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:migrate:local": "wrangler d1 migrations apply submgr --local",
+    "db:migrate:remote": "wrangler d1 migrations apply submgr --remote",
+    "db:seed:local": "wrangler d1 execute submgr --local --file=seed/seed.sql"
+  },
+  "dependencies": {
+    "@submgr/core": "workspace:*",
+    "hono": "^4.13.13"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260702.1",
+    "@types/node": "^22.20.5",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.9",
+    "wrangler": "^3.114.17"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  }
+}

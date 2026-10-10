@@ -1,0 +1,61 @@
+# =============================================================================
+# 订阅管家 · Cloudflare Worker 配置
+# =============================================================================
+# 本文件不含任何密钥：ADMIN_TOKEN / NOTIFY_SECRET_KEY / 渠道 secret 一律用
+#   wrangler secret put <NAME>
+# 写入（生产）或放在 .dev.vars（本地），绝不写进这个文件、也绝不进 D1。
+#
+# 部署前必须替换的占位值：
+#   [[d1_databases]].database_id  <- wrangler d1 create submgr 的输出
+# =============================================================================
+
+name = "submgr"
+main = "src/index.ts"
+compatibility_date = "2025-10-01"
+
+# 单用户自用工具，先只挂 workers.dev 域名；要绑自有域名再加 routes。
+workers_dev = true
+
+# -----------------------------------------------------------------------------
+# D1
+# -----------------------------------------------------------------------------
+[[d1_databases]]
+binding = "DB"
+database_name = "submgr"
+# ⚠️ 占位符：执行 `wrangler d1 create submgr` 后把真实的 database_id 填进来
+database_id = "00000000-0000-4000-8000-000000000000"
+migrations_dir = "migrations"
+
+# -----------------------------------------------------------------------------
+# Cron（表达式是 UTC；下面注释里的本地时间是 Asia/Shanghai = UTC+8）
+#   */15 * * * *   每 15 分钟      扫描到期提醒 + 周期汇总提醒
+#   20 16 * * *    每天 00:20 CST   拉当天汇率快照（失败自动重试 3 次）
+#   30 16 * * *    每天 00:30 CST   试用转正 + 生成当日扣款并冻结汇率
+#
+# 这三个表达式必须与 src/cron/index.ts 里的 CRON_REMINDERS / CRON_FX / CRON_DAILY
+# 完全一致，否则 dispatchCron 会记一条 cron.unknown 日志（不静默吞掉）。
+# -----------------------------------------------------------------------------
+[triggers]
+crons = ["*/15 * * * *", "20 16 * * *", "30 16 * * *"]
+
+# -----------------------------------------------------------------------------
+# 静态资源（阶段三的前端产物）
+#   * 静态资源由 assets 层直接返回；/api/* 与 /ics/* 没有对应文件，
+#     会落到本 Worker 上处理，因此前端与接口同源，不需要 CORS。
+#   * not_found_handling = single-page-application：未知路径回落到 index.html，
+#     保证前端路由（如 /subscriptions/xxx）刷新不 404。
+# -----------------------------------------------------------------------------
+[assets]
+directory = "../web/dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+
+# -----------------------------------------------------------------------------
+# 非敏感变量（密钥不在这里）
+# -----------------------------------------------------------------------------
+[vars]
+FX_API_BASE = "https://open.er-api.com/v6/latest/USD"
+
+# 结构化日志（cron.fx.* / cron.reminder.* / cron.charges.* / http.unhandled）
+[observability]
+enabled = true

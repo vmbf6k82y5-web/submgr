@@ -1,0 +1,18 @@
+# 本地开发用（wrangler dev 会自动读取本文件；.dev.vars 已在 .gitignore 里）
+#
+# 复制成 .dev.vars 后按需修改：
+#   cp .dev.vars.example .dev.vars
+#
+# 注意：这里只放开发用的假值，不要放真实密钥。
+
+# /api 的 Bearer 令牌
+ADMIN_TOKEN = "dev-admin-token-change-me"
+
+# secrets_encrypted 的解密主密钥（base64(32 字节)）。不用加密方式存密钥时可以留空。
+# NOTIFY_SECRET_KEY = ""
+
+# 渠道密钥：名字必须与 notification_channels.secret_ref 完全一致。
+# 飞书自定义机器人：
+# FEISHU_MAIN = '{"webhook_url":"https://open.feishu.cn/open-apis/bot/v2/hook/xxx","sign_secret":"xxx"}'
+# Telegram：
+# TELEGRAM_MAIN = '{"bot_token":"123456:ABC-xxx","chat_id":"123456789"}'

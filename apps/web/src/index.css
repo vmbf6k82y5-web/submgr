@@ -1,0 +1,60 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    @apply bg-slate-100 text-slate-900 antialiased;
+    /* 底部导航在 iPhone 上要避开 Home 指示条 */
+    overscroll-behavior-y: none;
+  }
+
+  /* 数字（金额）用等宽字体对齐，列表里更整齐 */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@layer components {
+  .card {
+    @apply rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200;
+  }
+
+  .btn {
+    @apply inline-flex select-none items-center justify-center gap-1 rounded-xl px-3.5 py-2 text-sm
+      font-medium transition active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50;
+  }
+
+  .btn-primary {
+    @apply inline-flex select-none items-center justify-center gap-1 rounded-xl bg-slate-900 px-3.5
+      py-2 text-sm font-medium text-white transition active:scale-[0.98]
+      disabled:pointer-events-none disabled:opacity-50;
+  }
+
+  .btn-secondary {
+    @apply inline-flex select-none items-center justify-center gap-1 rounded-xl bg-white px-3.5 py-2
+      text-sm font-medium text-slate-700 ring-1 ring-slate-300 transition active:scale-[0.98]
+      disabled:pointer-events-none disabled:opacity-50;
+  }
+
+  .btn-danger {
+    @apply inline-flex select-none items-center justify-center gap-1 rounded-xl bg-red-50 px-3.5 py-2
+      text-sm font-medium text-red-600 ring-1 ring-red-200 transition active:scale-[0.98]
+      disabled:pointer-events-none disabled:opacity-50;
+  }
+
+  .input {
+    @apply w-full rounded-xl border-0 bg-slate-50 px-3 py-2.5 text-base text-slate-900
+      ring-1 ring-slate-300 placeholder:text-slate-400 focus:bg-white focus:outline-none
+      focus:ring-2 focus:ring-slate-900;
+  }
+
+  .label {
+    @apply mb-1 block text-sm font-medium text-slate-600;
+  }
+}

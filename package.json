@@ -1,0 +1,28 @@
+{
+  "name": "submgr",
+  "version": "0.1.0",
+  "private": true,
+  "description": "订阅管家 — 个人自用订阅追踪工具 (Cloudflare Workers + D1 + React PWA)",
+  "packageManager": "pnpm@10.34.6",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @submgr/web dev",
+    "dev:worker": "pnpm --filter @submgr/worker dev",
+    "test": "pnpm -r test",
+    "test:core": "pnpm --filter @submgr/core test",
+    "test:schema": "pnpm --filter @submgr/worker test",
+    "test:web": "pnpm --filter @submgr/web test",
+    "test:watch": "pnpm --filter @submgr/core test:watch",
+    "typecheck": "pnpm -r typecheck",
+    "build": "pnpm -r build",
+    "deploy": "pnpm --filter @submgr/web build && pnpm --filter @submgr/worker run deploy",
+    "db:migrate:local": "pnpm --filter @submgr/worker db:migrate:local",
+    "db:migrate:remote": "pnpm --filter @submgr/worker db:migrate:remote",
+    "db:seed:local": "pnpm --filter @submgr/worker db:seed:local"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}
