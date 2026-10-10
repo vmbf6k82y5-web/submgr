@@ -59,20 +59,30 @@ async function assertSubscription(db: D1Database, id: string): Promise<void> {
   if (!row) throw invalid(`subscription_id 指向的订阅不存在或已删除：${id}`);
 }
 
-/** version_id 必须属于同一个订阅，否则趋势按周期分组时会张冠李戴。 */
+/**
+ * version_id 必须属于同一个订阅，否则趋势按周期分组时会张冠李戴。
+ * 传了 chargeDate 时还要求版本已生效（effective_from <= chargeDate）：
+ * 把扣款挂到还没生效的未来版本上，趋势按周期分组时会算错口径。
+ */
 async function assertVersionBelongsTo(
   db: D1Database,
   versionId: string,
   subscriptionId: string,
+  chargeDate?: string,
 ): Promise<void> {
-  const row = await firstRow<{ id: string }>(
+  const row = await firstRow<{ id: string; effective_from: string }>(
     db,
-    `SELECT id FROM subscription_versions
+    `SELECT id, effective_from FROM subscription_versions
       WHERE id = ? AND subscription_id = ? AND deleted_at IS NULL`,
     [versionId, subscriptionId],
   );
   if (!row) {
     throw invalid(`version_id ${versionId} 不属于订阅 ${subscriptionId}（或已删除）`);
+  }
+  if (chargeDate !== undefined && row.effective_from > chargeDate) {
+    throw invalid(
+      `version_id ${versionId} 在 ${row.effective_from} 才生效，不能挂在 ${chargeDate} 的扣款上`,
+    );
   }
 }
 
@@ -234,7 +244,12 @@ chargeRoutes.patch('/:id', async (c) => {
   }
   if (has(body, 'version_id')) {
     const versionId = optionalString(body, 'version_id', { max: 64 }) ?? null;
-    if (versionId) await assertVersionBelongsTo(c.env.DB, versionId, current.subscription_id);
+    if (versionId) {
+      // 同一次 PATCH 也可能同时改 charge_date：用「改完之后的扣款日」做生效校验
+      const effectiveChargeDate =
+        'charge_date' in values ? (values['charge_date'] as string) : current.charge_date;
+      await assertVersionBelongsTo(c.env.DB, versionId, current.subscription_id, effectiveChargeDate);
+    }
     push('version_id', versionId);
   }
 

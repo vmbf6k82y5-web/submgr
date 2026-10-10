@@ -75,14 +75,39 @@ export async function runTrialConversions(
   const details: TrialConversionDetail[] = [];
   let skipped = 0;
 
-  for (const trial of versions) {
-    if (!boolOf(trial.is_trial)) continue;
+  // 一个订阅只应对「最新的那个试用版本」做转正：正常数据一个订阅只有一个试用版，
+  // 但补录/历史数据可能出现多个，逐个转正会把更早的转正版本插进版本序列中间，
+  // 改变 dueAnchorFor 的锚点口径。按订阅分组后只取 effective_from 最新的一个。
+  const latestTrialBySub = new Map<string, SubscriptionVersionRow>();
+  for (const v of versions) {
+    if (!boolOf(v.is_trial)) continue;
+    if (!aliveSubIds.has(v.subscription_id)) continue;
+    const current = latestTrialBySub.get(v.subscription_id);
+    if (current === undefined || v.effective_from > current.effective_from) {
+      latestTrialBySub.set(v.subscription_id, v);
+    }
+  }
+
+  for (const trial of latestTrialBySub.values()) {
     if (!trial.trial_end_date) continue;
-    if (!aliveSubIds.has(trial.subscription_id)) continue;
     // 还没到转正日
     if (trial.trial_end_date > today) continue;
     // 没填转正价格 = 「试用后不续费」，不生成转正版本
     if (trial.after_trial_amount_minor === null || trial.after_trial_cycle_type === null) continue;
+
+    // 该订阅已经有「转正日或更晚生效」的正式版本：说明已经转过（或用户手工续了价），
+    // 再插一个更早生效的版本会扰乱版本序列，直接跳过。
+    const trialEnd = trial.trial_end_date;
+    const alreadyFormal = versions.some(
+      (v) =>
+        v.subscription_id === trial.subscription_id &&
+        !boolOf(v.is_trial) &&
+        v.effective_from >= trialEnd,
+    );
+    if (alreadyFormal) {
+      skipped += 1;
+      continue;
+    }
 
     const existing = await firstRow<{ id: string }>(
       env.DB,

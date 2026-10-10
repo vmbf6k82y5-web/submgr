@@ -194,6 +194,55 @@ describe('元数据接口', () => {
       });
       expect(res.status).toBe(400);
     });
+
+    it('settings 出现多行未删除时：按最早一行处理并写 warn 日志（不静默）', async () => {
+      // singleton 唯一索引 ux_settings_singleton 会拦住正常插入；
+      // 这里模拟「数据被手工改乱」的形态：临时摘掉索引，插第二行，再恢复。
+      db.raw.exec('DROP INDEX ux_settings_singleton');
+      try {
+        const now = new Date().toISOString();
+        db.raw
+          .prepare(
+            `INSERT INTO settings (id, base_currency, timezone, ics_token, amortize_lifetime_months, created_at, updated_at)
+             VALUES ('00000000-0000-4000-8000-0000000000ff', 'USD', 'UTC', ?, 12, ?, ?)`,
+          )
+          .run('second-settings-token-0123456789' as never, now as never, now as never);
+      } finally {
+        // 断言之后再恢复索引：见下方 after-restore 的清理
+      }
+
+      const warnings: string[] = [];
+      const originalWarn = console.warn;
+      console.warn = (...args: unknown[]) => {
+        warnings.push(args.map(String).join(' '));
+      };
+      try {
+        const env = makeEnv(db);
+        const body = await callJson<{ item: { id: string; base_currency: string } }>(
+          env,
+          'GET',
+          '/api/settings',
+        );
+        // 口径：取最早创建的一行（即 seed 里的原始行）
+        expect(body.item.base_currency).toBe('CNY');
+        const hit = warnings
+          .map((w) => {
+            try {
+              return JSON.parse(w) as { event?: string; alive_rows?: number };
+            } catch {
+              return {};
+            }
+          })
+          .find((p) => p.event === 'settings.multiple_alive_rows');
+        expect(hit).toBeDefined();
+        expect(hit?.alive_rows).toBe(2);
+      } finally {
+        console.warn = originalWarn;
+        // 清理：删掉第二行并恢复 singleton 索引，不影响后续用例
+        db.raw.prepare(`DELETE FROM settings WHERE id = ?`).run('00000000-0000-4000-8000-0000000000ff' as never);
+        db.raw.exec('CREATE UNIQUE INDEX ux_settings_singleton ON settings ((1))');
+      }
+    });
   });
 
   // -------------------------------------------------------------------------

@@ -212,6 +212,66 @@ describe('Cron ③ 试用转正 + 生成当日扣款', () => {
     expect(charges.charges.some((c) => c.subscription_id === SUB_TRIAL_TODAY)).toBe(false);
   });
 
+  it('同一订阅存在多个试用版本时，只对最新的那个转正（不扰乱版本序列）', async () => {
+    const env = makeEnv(db);
+    // 给「今天转正」的订阅补一个更早的试用版本（补录历史数据的形态）：
+    // 它的 trial_end_date 也已到期，但绝不能为它再插一个更早年份的转正版本。
+    await env.DB.prepare(
+      `INSERT INTO subscription_versions
+         (id, subscription_id, effective_from, plan_name, amount_minor, currency, cycle_type, is_trial,
+          trial_end_date, after_trial_amount_minor, after_trial_currency, after_trial_cycle_type,
+          created_at, updated_at)
+       VALUES ('99999999-9999-4999-8999-000000000002', ?, ?, '历史试用', 100, 'CNY', 'month', 1,
+               ?, 200, 'CNY', 'month', ?, ?)`,
+    )
+      .bind(SUB_TRIAL_TODAY, D(-60), D(-30), `${TODAY}T00:00:00.000Z`, `${TODAY}T00:00:00.000Z`)
+      .run();
+
+    const { deps } = makeDeps();
+    const trial = await runTrialConversions(env, deps);
+
+    // 只转正最新的试用版（trial_end_date = 今天），更早的那个不动
+    expect(trial.converted).toBe(1);
+    expect(trial.details[0]?.effective_from).toBe(TODAY);
+    expect(
+      queryAll(db, 'SELECT id FROM subscription_versions WHERE subscription_id = ?', SUB_TRIAL_TODAY),
+    ).toHaveLength(3); // 历史试用 + 今天到期的试用 + 新转正版本
+    expect(
+      queryAll(
+        db,
+        'SELECT id FROM subscription_versions WHERE subscription_id = ? AND is_trial = 0',
+        SUB_TRIAL_TODAY,
+      ),
+    ).toHaveLength(1);
+  });
+
+  it('订阅已有「转正日或更晚生效」的正式版本时，不再补插更早生效的转正版本', async () => {
+    const env = makeEnv(db);
+    // 用户已经手工续了一个更晚生效的正式版本
+    await env.DB.prepare(
+      `INSERT INTO subscription_versions
+         (id, subscription_id, effective_from, plan_name, amount_minor, currency, cycle_type, is_trial,
+          created_at, updated_at)
+       VALUES ('99999999-9999-4999-8999-000000000003', ?, ?, '手工续费', 5555, 'CNY', 'month', 0, ?, ?)`,
+    )
+      .bind(SUB_TRIAL_TODAY, D(1), `${TODAY}T00:00:00.000Z`, `${TODAY}T00:00:00.000Z`)
+      .run();
+
+    const { deps } = makeDeps();
+    const trial = await runTrialConversions(env, deps);
+
+    // trial_end_date = 今天 < 已有正式版本的 D(1)：再插一个今天生效的版本会扰乱序列
+    expect(trial.converted).toBe(0);
+    expect(trial.skipped_existing).toBe(1);
+    expect(
+      queryAll(
+        db,
+        'SELECT id FROM subscription_versions WHERE subscription_id = ? AND is_trial = 0',
+        SUB_TRIAL_TODAY,
+      ),
+    ).toHaveLength(1); // 只有手工建的那个
+  });
+
   it('同一天已经有版本时跳过转正，但仍按已有版本扣款', async () => {
     const env = makeEnv(db);
     // 手工插入一个「今天生效」的正式版本（等价于转正版本已经存在）

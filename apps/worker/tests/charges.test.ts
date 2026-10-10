@@ -227,6 +227,39 @@ describe('/api/charges', () => {
     expect(list.items.find((c) => c.id === id)).toBeUndefined();
   });
 
+  it('PATCH version_id 不能指向尚未生效的未来版本（以改完后的扣款日为准）', async () => {
+    const env = makeEnv(db);
+    const created = await callJson<{ item: ChargeDto }>(
+      env,
+      'POST',
+      '/api/charges',
+      { subscription_id: SUB_MONTHLY, charge_date: D(-1), amount_minor: 1000, currency: 'CNY' },
+      201,
+    );
+
+    // 给同一订阅建一个「明天生效」的未来版本
+    const future = await callJson<{ item: { id: string } }>(
+      env,
+      'POST',
+      `/api/subscriptions/${SUB_MONTHLY}/versions`,
+      { effective_from: D(1), amount_minor: 4200, currency: 'CNY', cycle_type: 'month' },
+      201,
+    );
+
+    // 直接挂到未来版本 -> 400（版本生效日晚于扣款日）
+    const bad = await call(env, 'PATCH', `/api/charges/${created.item.id}`, {
+      version_id: future.item.id,
+    });
+    expect(bad.status).toBe(400);
+
+    // 同一次 PATCH 把扣款日也改到生效日之后 -> 允许
+    const ok = await callJson<{ item: ChargeDto }>(env, 'PATCH', `/api/charges/${created.item.id}`, {
+      version_id: future.item.id,
+      charge_date: D(2),
+    });
+    expect(ok.item.charge_date).toBe(D(2));
+  });
+
   it('PATCH / DELETE 不存在的记录 -> 404', async () => {
     const env = makeEnv(db);
     expect((await call(env, 'PATCH', '/api/charges/nope', { status: 'paid' })).status).toBe(404);

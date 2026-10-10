@@ -26,12 +26,32 @@ export function newIcsToken(): string {
   return [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-/** 读取 settings；不存在返回 null。 */
+/**
+ * 读取 settings；不存在返回 null。
+ *
+ * settings 应该是单行（ux_settings_singleton 兜底）。若因手工操作出现多行未删除，
+ * 口径是「取最早创建的一行」——与 ensureSettings / PUT /api/settings 的更新目标一致，
+ * 但这属于数据被改乱的信号，写一行 warn 日志方便排查。
+ */
 export async function loadSettings(db: D1Database): Promise<SettingsRow | null> {
-  return firstRow<SettingsRow>(
+  const row = await firstRow<SettingsRow & { alive_rows: number }>(
     db,
-    `SELECT * FROM settings WHERE deleted_at IS NULL ORDER BY created_at ASC LIMIT 1`,
+    `SELECT *, (SELECT COUNT(*) FROM settings WHERE deleted_at IS NULL) AS alive_rows
+       FROM settings WHERE deleted_at IS NULL ORDER BY created_at ASC LIMIT 1`,
   );
+  if (row !== null && row.alive_rows > 1) {
+    console.warn(
+      JSON.stringify({
+        ts: new Date().toISOString(),
+        level: 'warn',
+        event: 'settings.multiple_alive_rows',
+        alive_rows: row.alive_rows,
+        selected_id: row.id,
+        message: 'settings 出现多行未删除记录，已按最早创建的一行处理；请检查数据库',
+      }),
+    );
+  }
+  return row;
 }
 
 /**

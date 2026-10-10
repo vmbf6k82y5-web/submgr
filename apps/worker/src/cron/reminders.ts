@@ -99,9 +99,24 @@ export async function runReminderScan(
 
   const channelById = new Map(channels.map((c) => [c.id, c]));
   const outcomes: ReminderOutcome[] = [];
+  const warnedNoAtTime = new Set<string>();
 
   for (const rule of rules) {
-    if (rule.at_time === null || rule.at_time === undefined) continue;
+    if (rule.at_time === null || rule.at_time === undefined) {
+      // 防御分支：migration 0005 的 CHECK 与 routes/reminders.ts 都要求 due/schedule 规则
+      // 必须有 at_time，所以正常路径到不了这里；只有「规则类型被非法改动 / 未来新增
+      // 规则类型忘了同步」之类漏网数据才会命中。命中时不能静默跳过：一轮扫描里按
+      // 规则 id 去重后只记一条 warn。
+      if (!warnedNoAtTime.has(rule.id)) {
+        warnedNoAtTime.add(rule.id);
+        deps.log('warn', 'cron.reminder.no_at_time', {
+          rule_id: rule.id,
+          rule_type: rule.rule_type,
+          reason: '规则的 at_time 为空（正常数据不应出现），该规则不会触发提醒',
+        });
+      }
+      continue;
+    }
     // 还没到当天的提醒时刻：直接跳过，不写日志
     if (localTime < rule.at_time) continue;
 

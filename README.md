@@ -280,6 +280,8 @@ https://<worker 域名>/ics/<ics_token>.ics
    与 migration 的 CHECK 同一口径）；`secret_ref` 必须是环境变量名风格 `^[A-Z][A-Z0-9_]*$`，
    防止有人把 webhook URL 直接塞进数据库。
 9. **`settings` 单行会自愈**：任何需要它的接口都会「没有就插一行」，所以空库第一次访问不会 500。
+    若库里出现多行未删除的 settings（singleton 索引之外的脏数据），口径是「取最早创建的一行」，
+    并写 `settings.multiple_alive_rows` warn 日志，不静默。
 10. **`base_currency` 被改过以后**，历史扣款仍保留冻结时记录的 `base_currency`；趋势遇到
     「冻结基准 ≠ 当前基准」会退回用原币种 + 当前汇率重算（这是 core 的行为）。
 11. **`/api/summary` 的 `missingCurrencies` 只列非基准币种**（core 的口径：基准币种是同币种直通，
@@ -297,17 +299,29 @@ https://<worker 域名>/ics/<ics_token>.ics
 16. 同一天多笔扣款**共用同一份汇率快照**（一次读库），保证同日口径一致。
 17. 幂等靠 `UX_charges_auto_daily (subscription_id, charge_date) WHERE source='auto'`：
     先查后插，撞唯一索引也算「已存在」，重复跑不会多记一笔。
+17a. **试用转正的两个防御口径**（第二双眼睛审查后补）：
+    ① 一个订阅出现多个试用版本（补录/历史数据）时，只对 `effective_from` 最新的那个转正，
+    更早的试用版不再生成转正版本；② 该订阅已存在「`effective_from >= trial_end_date`」的
+    正式版本时跳过转正——两者都是为了避免把更早生效的版本插进版本序列中间、扰乱到期锚点。
+17b. **扣款挂版本必须已生效**：`POST/PATCH /api/charges` 的 `version_id` 除「属于同一订阅」外，
+    还要求 `effective_from <= charge_date`（PATCH 同改扣款日时以改完后的日期为准），
+    否则 400——防止把扣款挂到未生效的未来版本上导致趋势口径错乱。
 
 ### 7.3 提醒（Cron ②）
 
 18. **`at_time` 用字符串比较**（`HH:mm`，补零），当前用户时区时间 ≥ `at_time` 才发；
     早于 `at_time` 直接跳过、不写任何日志，所以 09:00 那次抖动漏跑，09:15 会补发。
+    `at_time` 非空由 migration 0005 的 CHECK 与接口校验双重保证；cron 里仍留了一个
+    防御分支：万一读到 `at_time` 为空的规则（正常数据不可达），跳过并按规则各记一条
+    `cron.reminder.no_at_time` warn，不静默。
 19. **同一天有多笔到期时合并成一条「清单」消息**（`buildDueListReminderText`）。这是被 schema 逼出来的
     设计：`reminder_log` 的去重键是 `(rule_id, due_date)`（`ux_reminder_log_dedupe` 部分唯一索引，已冻结），
     一条**全局**到期规则如果为同一天的每个订阅各发一条，第二条必然被去重挡掉。所以一个
     「规则 + 到期日」只对应一条消息，多笔时列成清单（每行都带各自的扣费渠道）。
 20. **`every_n_days` 汇总的锚点 = 规则 `created_at` 在用户时区下的日期**（列里没有「下次发送日」这种字段，
-    只能拿创建日当锚点），差值为 `interval` 的整数倍那天发。
+    只能拿创建日当锚点），差值为 `interval` 的整数倍那天发。**修改规则（含 interval）不会重置锚点**
+    （`created_at` 不变），所以「每 3 天」改成「每 2 天」后发送日仍相对原创建日对齐，
+    而不是从修改当天重新起算；要换锚点就删了重建。
 21. **周期汇总即使当天没有到期也照发**，文案写成「未来 30 天没有任何到期扣款。」，
     否则用户会分不清「没有要扣的钱」和「提醒挂了」。
 22. **「未来 30 天」= （今天, 今天 + 30 天]**，与 core 的 `summarize.next30Days` **完全一致**
